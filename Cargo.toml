@@ -1,0 +1,9 @@
+[package]
+name = "pack2tri"
+version = "0.1.0"
+authors = ["Chris West (Faux) <git@goeswhere.com>"]
+
+[dependencies]
+argparse = "0.2.1"
+compress = "0.1.2"
+
