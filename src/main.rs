@@ -17,7 +17,9 @@ use argparse::{Store, StoreTrue};
 
 use bit_set::BitSet;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt};
+
+use compress::lz4;
 
 use libc::c_void;
 
@@ -241,7 +243,7 @@ impl<'a> Index<'a> {
 
         self.idx.data[trigram as usize] = self.free_page as u32;
         self.free_page += 1;
-        if self.free_page > self.pages.data.len() / self.page_size {
+        if self.free_page >= self.pages.data.len() / self.page_size {
             let old_len = self.pages.data.len();
             self.pages.remap(old_len + 100 * self.page_size)?;
         }
@@ -266,16 +268,31 @@ impl<'a> Index<'a> {
     }
 }
 
-fn eat_chunk(fh: &mut fs::File) -> io::Result<BitSet> {
+fn round_up(x: u64) -> u64 {
+    let mut ret = x;
+    loop {
+        if ret % 16 == 0 {
+            return ret;
+        }
+        ret += 1;
+    }
+}
+
+fn eat_chunk(mut fh: &mut fs::File) -> io::Result<BitSet> {
     let end = fh.read_u64::<BigEndian>()?;
     let extra_len = fh.read_u64::<BigEndian>()?;
-    fh.seek(io::SeekFrom::Current(extra_len as i64))?;
-    assert!(end < std::usize::MAX as u64);
-    let range = fh.bytes().take((end - extra_len) as usize);
-    let exploding = range.map(|x| x.unwrap());
-    let decoder = std::char::decode_utf8(exploding);
-    let errors = decoder.map(|x| x.map_err(|_| io::CharsError::NotUtf8));
-    trigrams_for(errors).map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))
+    let start = fh.seek(io::SeekFrom::Current(extra_len as i64))?;
+    let ret = {
+        let decoder = lz4::Decoder::new(&mut fh);
+        let range = decoder.bytes();
+        let exploding = range.map(|x| x.unwrap());
+        let decoder = std::char::decode_utf8(exploding);
+        let errors = decoder.map(|x| x.map_err(|_| io::CharsError::NotUtf8));
+        trigrams_for(errors).map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))
+    };
+    let next = round_up(start + end - extra_len - 16);
+    fh.seek(io::SeekFrom::Start(next))?;
+    ret
 }
 
 fn main() {
@@ -307,10 +324,11 @@ fn main() {
         return;
     }
 
-    let mut real_offset = fh.seek(io::SeekFrom::Start(16)).unwrap();
-    let trigrams = eat_chunk(&mut fh).unwrap();
-    idx.append_trigrams(trigrams, real_offset + addendum).unwrap();
+    fh.seek(io::SeekFrom::Start(16)).unwrap();
+    loop {
 
-
-    unimplemented!();
+        let document = fh.seek(io::SeekFrom::Current(0)).unwrap() + addendum;
+        let trigrams = eat_chunk(&mut fh).unwrap();
+        idx.append_trigrams(trigrams, document).unwrap();
+    }
 }
