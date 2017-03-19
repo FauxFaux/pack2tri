@@ -204,27 +204,31 @@ fn main() {
 
     let page_size: usize = 1024;
 
-    let pages_len: usize = (match fs::metadata("pages") {
-        Ok(m) => m.len(),
+    let pages_len: usize = match fs::metadata("pages") {
+        Ok(m) => {
+            let proposed: u64 = m.len() / mem::size_of::<u64>() as u64;
+            assert!(proposed < usize::max_value() as u64);
+            proposed as usize
+        },
         Err(e) => if e.kind() == io::ErrorKind::NotFound {
-            0
+            2 * page_size
         } else {
             panic!("couldn't get info on pages file: {}", e)
         }
-    } / (mem::size_of::<u64>() as u64)) as usize;
+    };
 
-    let mut pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len + (page_size * 100)).unwrap();
+    let mut pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len).unwrap();
     let mut avail_pages: usize = pages.data.len() / page_size;
-    let mut free_page: usize = avail_pages - 98;
+    let mut free_page: usize = avail_pages;
 
     loop {
         if 0 != pages.data[(free_page - 1) * page_size] {
             break;
         }
-        free_page -= 1;
         if 1 == free_page {
             break;
         }
+        free_page -= 1;
     }
 
     if 0 != simple {
