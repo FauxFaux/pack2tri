@@ -11,7 +11,7 @@ use std::mem;
 use std::path;
 use std::slice;
 
-use argparse::{Store, StoreTrue};
+use argparse::Store;
 
 use bit_set::BitSet;
 
@@ -149,10 +149,30 @@ impl <'a, T: 'a> Mapped<'a, T> {
                        0)
         };
 
-        assert_ne!(0 as *mut c_void, map);
+        if libc::MAP_FAILED == map {
+            return Err(io::Error::last_os_error());
+        }
 
         let data = unsafe { slice::from_raw_parts_mut(map as *mut T, len) };
         Ok(Mapped { file, map, data })
+    }
+
+    fn remap(&mut self, len: usize) -> io::Result<()> {
+        self.file.set_len(mem::size_of::<T>() as u64 * len as u64)?;
+        let new_map = unsafe {
+            libc::mremap(self.map,
+                         self.data.len() * mem::size_of::<T>(),
+                         len * mem::size_of::<T>(),
+                         libc::MREMAP_MAYMOVE)
+        };
+
+        if libc::MAP_FAILED == new_map {
+            return Err(io::Error::last_os_error());
+        }
+
+        self.data = unsafe { slice::from_raw_parts_mut(new_map as *mut T, len) };
+        self.map = new_map;
+        Ok(())
     }
 }
 
@@ -194,7 +214,9 @@ fn main() {
     } / (mem::size_of::<u64>() as u64)) as usize;
 
     let mut pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len + (page_size * 100)).unwrap();
-    let mut free_page: usize = pages.data.len() / page_size - 98;
+    let mut avail_pages: usize = pages.data.len() / page_size;
+    let mut free_page: usize = avail_pages - 98;
+
     loop {
         if 0 != pages.data[(free_page - 1) * page_size] {
             break;
@@ -214,6 +236,10 @@ fn main() {
                 page = free_page;
                 idx.data[found] = page as u32;
                 free_page += 1;
+                if free_page > avail_pages {
+                    avail_pages += 100;
+                    pages.remap(avail_pages * page_size).unwrap();
+                }
             }
 
             let header_loc = page * page_size;
