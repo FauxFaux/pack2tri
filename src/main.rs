@@ -14,6 +14,33 @@ use std::io::Read;
 
 type CharResult = Result<char, io::CharsError>;
 
+enum TChar {
+    Unknown,
+//    Control,
+    Line,
+    Space,
+    Normal,
+}
+
+fn simplify(wut: char) -> u8 {
+    let c = match wut {
+        'a' ... 'z' => (wut as u8 - 'a' as u8 + 'A' as u8) as char,
+        _ => wut,
+    };
+
+    let sym_end = TChar::Normal as u8 + '@' as u8 - '!' as u8 - 1;
+    match c {
+//        '\0' ... '\x08' => TChar::Control as u8,
+        '\t' | '\x0c' | '\x0b' | ' ' => TChar::Space as u8,
+        '\r' | '\n' => TChar::Line as u8,
+//        '\x10' ... '\x1f' => TChar::Control as u8,
+        '!' ... '@' => TChar::Normal as u8 + (c as u8 - '!' as u8),
+        'A' ... '`' => sym_end + (c as u8 - 'A' as u8),
+        '{' ... '~' => sym_end + 32 + (c as u8 - '{' as u8),
+        _ => TChar::Unknown as u8,
+    }
+}
+
 fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<(), String> {
     let mut line: u64 = 1;
     let mut prev: [char; 3] = ['\0'; 3];
@@ -50,6 +77,10 @@ fn main() {
                 .add_option(&["--simple"], StoreTrue,
                             "not a pack, just a normal decompressed file");
         ap.parse_args_or_exit();
+    }
+
+    for i in 0..128u8 {
+        println!("{} ({}) => {}", i, i as char, simplify(i as char));
     }
 
     if simple {
