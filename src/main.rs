@@ -184,6 +184,76 @@ impl <'a, T: 'a> Drop for Mapped<'a, T> {
     }
 }
 
+struct Index<'a> {
+    idx: Mapped<'a, u32>,
+    pages: Mapped<'a, u64>,
+    free_page: usize,
+    page_size: usize,
+}
+
+impl<'a> Index<'a> {
+    fn new() -> io::Result<Index<'a>> {
+        let idx: Mapped<u32> = Mapped::fixed_len("idx", TRI_MAX).unwrap();
+
+        let page_size: usize = 1024;
+
+        let pages_len: usize = match fs::metadata("pages") {
+            Ok(m) => {
+                let proposed: u64 = m.len() / mem::size_of::<u64>() as u64;
+                assert!(proposed < usize::max_value() as u64);
+                proposed as usize
+            },
+            Err(e) => if e.kind() == io::ErrorKind::NotFound {
+                2 * page_size
+            } else {
+                panic!("couldn't get info on pages file: {}", e)
+            }
+        };
+
+        let pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len).unwrap();
+        let mut free_page: usize = pages.data.len() / page_size;
+
+        loop {
+            if 0 != pages.data[(free_page - 1) * page_size] {
+                break;
+            }
+            if 1 == free_page {
+                break;
+            }
+            free_page -= 1;
+        }
+
+        Ok(Index { idx, pages, free_page, page_size })
+    }
+
+    fn page_for(&mut self, trigram: u32) -> Result<usize, ()> {
+        assert!(trigram < TRI_MAX as u32);
+
+        let page = self.idx.data[trigram as usize] as usize;
+        if 0 != page {
+            return Ok(page);
+        }
+
+        self.idx.data[trigram as usize] = self.free_page as u32;
+        self.free_page += 1;
+        if self.free_page > self.pages.data.len() / self.page_size {
+            let old_len = self.pages.data.len();
+            self.pages.remap(old_len + 100 * self.page_size).unwrap();
+        }
+        Ok(self.free_page)
+    }
+
+    fn append(&mut self, trigram: u32, document: u64) -> Result<(), ()> {
+        let page = self.page_for(trigram)?;
+        let header_loc = page * self.page_size;
+        let header = self.pages.data[header_loc];
+        assert!(header < self.page_size as u64);
+        self.pages.data[header_loc] += 1;
+        self.pages.data[page * self.page_size + 1 + header as usize] = document;
+        Ok(())
+    }
+}
+
 fn main() {
     let mut from: String = "".to_string();
     let mut simple: u64 = 0;
@@ -200,56 +270,13 @@ fn main() {
         ap.parse_args_or_exit();
     }
 
-    let mut idx: Mapped<u32> = Mapped::fixed_len("idx", TRI_MAX).unwrap();
-
-    let page_size: usize = 1024;
-
-    let pages_len: usize = match fs::metadata("pages") {
-        Ok(m) => {
-            let proposed: u64 = m.len() / mem::size_of::<u64>() as u64;
-            assert!(proposed < usize::max_value() as u64);
-            proposed as usize
-        },
-        Err(e) => if e.kind() == io::ErrorKind::NotFound {
-            2 * page_size
-        } else {
-            panic!("couldn't get info on pages file: {}", e)
-        }
-    };
-
-    let mut pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len).unwrap();
-    let mut free_page: usize = pages.data.len() / page_size;
-
-    loop {
-        if 0 != pages.data[(free_page - 1) * page_size] {
-            break;
-        }
-        if 1 == free_page {
-            break;
-        }
-        free_page -= 1;
-    }
+    let mut idx = Index::new().unwrap();
 
     if 0 != simple {
         let fh = fs::File::open(from).expect("input file must exist and be readable");
         let trigrams = trigrams_for(fh.chars()).expect("trigramming must work");
         for found in trigrams.iter() {
-            let mut page = idx.data[found] as usize;
-            if 0 == page {
-                page = free_page;
-                idx.data[found] = page as u32;
-                free_page += 1;
-                if free_page > pages.data.len() / page_size {
-                    let old_len = pages.data.len();
-                    pages.remap(old_len + 100 * page_size).unwrap();
-                }
-            }
-
-            let header_loc = page * page_size;
-            let header = pages.data[header_loc];
-            assert!(header < page_size as u64);
-            pages.data[header_loc] += 1;
-            pages.data[page * page_size + 1 + header as usize] = simple;
+            idx.append(found as u32, simple).unwrap();
         }
         return;
     }
