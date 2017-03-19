@@ -142,7 +142,7 @@ impl <'a, T: 'a> Mapped<'a, T> {
         file.set_len(mem::size_of::<T>() as u64 * len as u64)?;
         let map: *mut c_void = unsafe {
             libc::mmap(0 as *mut c_void,
-                       len,
+                       len * mem::size_of::<T>(),
                        libc::PROT_READ | libc::PROT_WRITE,
                        libc::MAP_SHARED,
                        file.as_raw_fd(),
@@ -151,7 +151,7 @@ impl <'a, T: 'a> Mapped<'a, T> {
 
         assert_ne!(0 as *mut c_void, map);
 
-        let data = unsafe { slice::from_raw_parts_mut(map as *mut T, len / mem::size_of::<T>()) };
+        let data = unsafe { slice::from_raw_parts_mut(map as *mut T, len) };
         Ok(Mapped { file, map, data })
     }
 }
@@ -161,13 +161,12 @@ impl <'a, T: 'a> Drop for Mapped<'a, T> {
         unsafe {
             assert_eq!(0, libc::munmap(self.map, self.data.len() * mem::size_of::<T>()));
         }
-        println!("mapping dropped");
     }
 }
 
 fn main() {
     let mut from: String = "".to_string();
-    let mut simple = false;
+    let mut simple: u64 = 0;
     {
         let mut ap = argparse::ArgumentParser::new();
         ap.set_description("totally not a load of tools glued together");
@@ -176,22 +175,12 @@ fn main() {
                 .add_option(&["-f", "--input-file"], Store,
                             "pack file to read");
         ap.refer(&mut simple)
-                .add_option(&["--simple"], StoreTrue,
+                .add_option(&["--simple"], Store,
                             "not a pack, just a normal decompressed file");
         ap.parse_args_or_exit();
     }
 
-    if simple {
-        let fh = fs::File::open(from).expect("input file must exist and be readable");
-        let trigrams = trigrams_for(fh.chars()).expect("trigramming must work");
-        for found in trigrams.iter() {
-            println!("{}: {}", found, unpack(found));
-        }
-        return;
-    }
-
     let mut idx: Mapped<u32> = Mapped::fixed_len("idx", TRI_MAX).unwrap();
-    idx.data[0] = 5;
 
     let page_size: usize = 1024;
 
@@ -205,16 +194,37 @@ fn main() {
     } / (mem::size_of::<u64>() as u64)) as usize;
 
     let mut pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len + (page_size * 100)).unwrap();
-    let mut free_page = pages.data.len() / page_size - 99;
+    let mut free_page: usize = pages.data.len() / page_size - 98;
     loop {
         if 0 != pages.data[(free_page - 1) * page_size] {
             break;
         }
         free_page -= 1;
-        if 0 == free_page {
+        if 1 == free_page {
             break;
         }
     }
+
+    if 0 != simple {
+        let fh = fs::File::open(from).expect("input file must exist and be readable");
+        let trigrams = trigrams_for(fh.chars()).expect("trigramming must work");
+        for found in trigrams.iter() {
+            let mut page = idx.data[found] as usize;
+            if 0 == page {
+                page = free_page;
+                idx.data[found] = page as u32;
+                free_page += 1;
+            }
+
+            let header_loc = page * page_size;
+            let header = pages.data[header_loc];
+            assert!(header < page_size as u64);
+            pages.data[header_loc] += 1;
+            pages.data[page * page_size + 1 + header as usize] = simple;
+        }
+        return;
+    }
+
 
 
     unimplemented!();
