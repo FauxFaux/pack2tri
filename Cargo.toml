@@ -6,6 +6,7 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 [dependencies]
 argparse = "0.2.1"
 bit-set = "0.4.0"
+byteorder = "1.0.0"
 compress = "0.1.2"
 libc = "0.2.21"
 

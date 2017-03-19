@@ -1,7 +1,9 @@
+#![feature(decode_utf8)]
 #![feature(io)]
 
 extern crate argparse;
 extern crate bit_set;
+extern crate byteorder;
 extern crate compress;
 extern crate libc;
 
@@ -11,14 +13,17 @@ use std::mem;
 use std::path;
 use std::slice;
 
-use argparse::Store;
+use argparse::{Store, StoreTrue};
 
 use bit_set::BitSet;
+
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use libc::c_void;
 
 //magic:
 use std::io::Read;
+use std::io::Seek;
 use std::os::unix::io::AsRawFd;
 
 type CharResult = Result<char, io::CharsError>;
@@ -252,11 +257,31 @@ impl<'a> Index<'a> {
         self.pages.data[page * self.page_size + 1 + header as usize] = document;
         Ok(())
     }
+
+    fn append_trigrams(&mut self, trigrams: BitSet, document: u64) -> io::Result<()> {
+        for found in trigrams.iter() {
+            self.append(found as u32, document)?;
+        }
+        Ok(())
+    }
+}
+
+fn eat_chunk(fh: &mut fs::File) -> io::Result<BitSet> {
+    let end = fh.read_u64::<BigEndian>()?;
+    let extra_len = fh.read_u64::<BigEndian>()?;
+    fh.seek(io::SeekFrom::Current(extra_len as i64))?;
+    assert!(end < std::usize::MAX as u64);
+    let range = fh.bytes().take((end - extra_len) as usize);
+    let exploding = range.map(|x| x.unwrap());
+    let decoder = std::char::decode_utf8(exploding);
+    let errors = decoder.map(|x| x.map_err(|_| io::CharsError::NotUtf8));
+    trigrams_for(errors).map_err(|msg| io::Error::new(io::ErrorKind::Other, msg))
 }
 
 fn main() {
     let mut from: String = "".to_string();
-    let mut simple: u64 = 0;
+    let mut simple = false;
+    let mut addendum: u64 = 0;
     {
         let mut ap = argparse::ArgumentParser::new();
         ap.set_description("totally not a load of tools glued together");
@@ -264,23 +289,27 @@ fn main() {
                 .required()
                 .add_option(&["-f", "--input-file"], Store,
                             "pack file to read");
+        ap.refer(&mut addendum)
+                .add_option(&["-i", "--addendum"], Store,
+                            "number to add to file offset");
         ap.refer(&mut simple)
-                .add_option(&["--simple"], Store,
+                .add_option(&["--simple"], StoreTrue,
                             "not a pack, just a normal decompressed file");
         ap.parse_args_or_exit();
     }
 
     let mut idx = Index::new().unwrap();
 
-    if 0 != simple {
-        let fh = fs::File::open(from).expect("input file must exist and be readable");
+    let mut fh = fs::File::open(from).expect("input file must exist and be readable");
+    if simple {
         let trigrams = trigrams_for(fh.chars()).expect("trigramming must work");
-        for found in trigrams.iter() {
-            idx.append(found as u32, simple).unwrap();
-        }
+        idx.append_trigrams(trigrams, addendum).unwrap();
         return;
     }
 
+    let mut real_offset = fh.seek(io::SeekFrom::Start(16)).unwrap();
+    let trigrams = eat_chunk(&mut fh).unwrap();
+    idx.append_trigrams(trigrams, real_offset + addendum).unwrap();
 
 
     unimplemented!();
