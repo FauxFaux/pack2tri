@@ -12,7 +12,9 @@ use argparse::{Store, StoreTrue};
 //magic:
 use std::io::Read;
 
-fn trigrams_for<T: Iterator<Item=Result<char, io::CharsError>>>(input: T) -> Result<(), String> {
+type CharResult = Result<char, io::CharsError>;
+
+fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<(), String> {
     let mut line: u64 = 1;
     let mut prev: [char; 3] = ['\0'; 3];
     for (off, maybe_char) in input.enumerate() {
