@@ -23,6 +23,8 @@ use std::os::unix::io::AsRawFd;
 
 type CharResult = Result<char, io::CharsError>;
 
+static TRI_MAX: usize = 64 * 64 * 64;
+
 fn simplify(wut: char) -> u8 {
     let c = match wut {
         'a' ... 'z' => (wut as u8 - 'a' as u8 + 'A' as u8) as char,
@@ -188,8 +190,32 @@ fn main() {
         return;
     }
 
-    let mut idx: Mapped<u32> = Mapped::fixed_len("idx", 64 * 64 * 64).unwrap();
+    let mut idx: Mapped<u32> = Mapped::fixed_len("idx", TRI_MAX).unwrap();
     idx.data[0] = 5;
+
+    let page_size: usize = 1024;
+
+    let pages_len: usize = (match fs::metadata("pages") {
+        Ok(m) => m.len(),
+        Err(e) => if e.kind() == io::ErrorKind::NotFound {
+            0
+        } else {
+            panic!("couldn't get info on pages file: {}", e)
+        }
+    } / (mem::size_of::<u64>() as u64)) as usize;
+
+    let mut pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len + (page_size * 100)).unwrap();
+    let mut free_page = pages.data.len() / page_size - 99;
+    loop {
+        if 0 != pages.data[(free_page - 1) * page_size] {
+            break;
+        }
+        free_page -= 1;
+        if 0 == free_page {
+            break;
+        }
+    }
+
 
     unimplemented!();
 }
