@@ -3,17 +3,23 @@
 extern crate argparse;
 extern crate bit_set;
 extern crate compress;
-
+extern crate libc;
 
 use std::fs;
 use std::io;
+use std::mem;
+use std::path;
+use std::slice;
 
 use argparse::{Store, StoreTrue};
 
 use bit_set::BitSet;
 
+use libc::c_void;
+
 //magic:
 use std::io::Read;
+use std::os::unix::io::AsRawFd;
 
 type CharResult = Result<char, io::CharsError>;
 
@@ -121,6 +127,42 @@ fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<BitSet, String
     return Ok(ret);
 }
 
+struct Mapped<'a, T: 'a> {
+    file: fs::File,
+    map: *mut c_void,
+    data: &'a mut [T],
+}
+
+impl <'a, T: 'a> Mapped<'a, T> {
+    fn fixed_len<P>(path: P, len: usize) -> io::Result<Mapped<'a, T>>
+        where P: AsRef<path::Path> {
+        let file = fs::OpenOptions::new().read(true).write(true).create(true).open(path)?;
+        file.set_len(len as u64)?;
+        let map: *mut c_void = unsafe {
+            libc::mmap(0 as *mut c_void,
+                       len,
+                       libc::PROT_READ | libc::PROT_WRITE,
+                       libc::MAP_SHARED,
+                       file.as_raw_fd(),
+                       0)
+        };
+
+        assert_ne!(0 as *mut c_void, map);
+
+        let data = unsafe { slice::from_raw_parts_mut(map as *mut T, len / mem::size_of::<T>()) };
+        Ok(Mapped { file, map, data })
+    }
+}
+
+impl <'a, T: 'a> Drop for Mapped<'a, T> {
+    fn drop(&mut self) {
+        unsafe {
+            assert_eq!(0, libc::munmap(self.map, self.data.len() * mem::size_of::<T>()));
+        }
+        println!("mapping dropped");
+    }
+}
+
 fn main() {
     let mut from: String = "".to_string();
     let mut simple = false;
@@ -144,6 +186,18 @@ fn main() {
             println!("{}: {}", found, unpack(found));
         }
         return;
+    }
+
+    {
+        let mut idx: Mapped<u8> = Mapped::fixed_len("1", 64 * 64 * 64).unwrap();
+        println!("gonna write");
+        idx.data[0] = 5;
+        println!("written");
+    }
+
+    {
+        let mut idx: Mapped<u32> = Mapped::fixed_len("2", 64 * 64 * 64).unwrap();
+        idx.data[1] = 5;
     }
 
 
