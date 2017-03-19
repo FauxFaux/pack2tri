@@ -1,6 +1,7 @@
 #![feature(io)]
 
 extern crate argparse;
+extern crate bit_set;
 extern crate compress;
 
 
@@ -8,6 +9,8 @@ use std::fs;
 use std::io;
 
 use argparse::{Store, StoreTrue};
+
+use bit_set::BitSet;
 
 //magic:
 use std::io::Read;
@@ -32,7 +35,6 @@ fn simplify(wut: char) -> u8 {
 
     let sym_end = 33u8;
     let letters = 21u8;
-
 
     match c {
         '\r' | '\n' => 1,
@@ -60,9 +62,46 @@ fn simplify(wut: char) -> u8 {
     }
 }
 
-fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<(), String> {
+fn explain(wut: u8) -> char {
+    match wut {
+        0 => 'X',
+        1 => 'N',
+        2 => ' ',
+        3 => '!',
+        4 => '"',
+        5 => '$',
+        6 => '%',
+        7 => '&',
+        8 ... 32 => (wut - 8 + '(' as u8) as char,
+        33 ... 41 => (wut - 33 + 'a' as u8) as char,
+        42 ... 46 => (wut - 42 + 'l' as u8) as char,
+        47 ... 52 => (wut - 47 + 'r' as u8) as char,
+        53 => 'y',
+        54 => 'X',
+        55 => '[',
+        56 => '\\',
+        57 => ']',
+        58 => '#',
+        59 => '_',
+        60 ... 62 => (wut - 60 + '{' as u8) as char,
+        63 => 'U',
+        _ => 'D',
+    }
+}
+
+fn unpack(wut: usize) -> String {
+    let mut ret = String::with_capacity(3);
+    ret.push(explain((wut / 64 / 64 % 64) as u8));
+    ret.push(explain((wut / 64 % 64) as u8));
+    ret.push(explain((wut % 64) as u8));
+    return ret;
+}
+
+fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<BitSet, String> {
     let mut line: u64 = 1;
-    let mut prev: [char; 3] = ['\0'; 3];
+    let mut prev: [u8; 3] = [0; 3];
+    let mut ret: BitSet = BitSet::with_capacity(64 * 64 * 64);
+
     for (off, maybe_char) in input.enumerate() {
         let c = try!(maybe_char.map_err(|e| {
             format!("line {}: file char {}: failed: {}", line, off, e)
@@ -75,11 +114,11 @@ fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<(), String> {
         }
         prev[0] = prev[1];
         prev[1] = prev[2];
-        prev[2] = c;
-        let stred: String = prev.into_iter().collect();
-        println!("{}", stred);
+        prev[2] = simplify(c);
+        let tri: usize = 64 * 64 * prev[0] as usize + 64 * prev[1] as usize + prev[2] as usize;
+        ret.insert(tri);
     }
-    return Ok(());
+    return Ok(ret);
 }
 
 fn main() {
@@ -98,13 +137,12 @@ fn main() {
         ap.parse_args_or_exit();
     }
 
-    for i in 0..128u8 {
-        println!("{} ({}) => {}", i, i as char, simplify(i as char));
-    }
-
     if simple {
         let fh = fs::File::open(from).expect("input file must exist and be readable");
         let trigrams = trigrams_for(fh.chars()).expect("trigramming must work");
+        for found in trigrams.iter() {
+            println!("{}: {}", found, unpack(found));
+        }
         return;
     }
 
