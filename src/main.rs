@@ -137,7 +137,7 @@ impl <'a, T: 'a> Mapped<'a, T> {
     fn fixed_len<P>(path: P, len: usize) -> io::Result<Mapped<'a, T>>
         where P: AsRef<path::Path> {
         let file = fs::OpenOptions::new().read(true).write(true).create(true).open(path)?;
-        file.set_len(len as u64)?;
+        file.set_len(mem::size_of::<T>() as u64 * len as u64)?;
         let map: *mut c_void = unsafe {
             libc::mmap(0 as *mut c_void,
                        len,
@@ -188,19 +188,8 @@ fn main() {
         return;
     }
 
-    {
-        let mut idx: Mapped<u8> = Mapped::fixed_len("1", 64 * 64 * 64).unwrap();
-        println!("gonna write");
-        idx.data[0] = 5;
-        println!("written");
-    }
-
-    {
-        let mut idx: Mapped<u32> = Mapped::fixed_len("2", 64 * 64 * 64).unwrap();
-        idx.data[1] = 5;
-    }
-
+    let mut idx: Mapped<u32> = Mapped::fixed_len("idx", 64 * 64 * 64).unwrap();
+    idx.data[0] = 5;
 
     unimplemented!();
-
 }
