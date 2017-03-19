@@ -14,30 +14,49 @@ use std::io::Read;
 
 type CharResult = Result<char, io::CharsError>;
 
-enum TChar {
-    Unknown,
-//    Control,
-    Line,
-    Space,
-    Normal,
-}
-
 fn simplify(wut: char) -> u8 {
     let c = match wut {
         'a' ... 'z' => (wut as u8 - 'a' as u8 + 'A' as u8) as char,
         _ => wut,
     };
 
-    let sym_end = TChar::Normal as u8 + '@' as u8 - '!' as u8 - 1;
+    if c > 128 as char {
+        if c.is_whitespace() {
+            return 2;
+        }
+        if c.is_control() {
+            return 0;
+        }
+        return 63;
+    }
+
+    let sym_end = 33u8;
+    let letters = 21u8;
+
+
     match c {
-//        '\0' ... '\x08' => TChar::Control as u8,
-        '\t' | '\x0c' | '\x0b' | ' ' => TChar::Space as u8,
-        '\r' | '\n' => TChar::Line as u8,
-//        '\x10' ... '\x1f' => TChar::Control as u8,
-        '!' ... '@' => TChar::Normal as u8 + (c as u8 - '!' as u8),
-        'A' ... '`' => sym_end + (c as u8 - 'A' as u8),
-        '{' ... '~' => sym_end + 32 + (c as u8 - '{' as u8),
-        _ => TChar::Unknown as u8,
+        '\r' | '\n' => 1,
+        '\t' | '\x0c' | '\x0b' | ' ' => 2,
+        '!' => 3,
+        '"' | '\'' | '`' => 4,
+        '$' => 5,
+        '%' => 6,
+        '&' => 7,
+        '(' ... '@' => 8 + (c as u8 - '(' as u8),
+        'A' ... 'I' => sym_end + (c as u8 - 'A' as u8),
+        'J' | 'K' => sym_end + letters,
+        'L' ... 'P' => sym_end + (c as u8 - 'A' as u8) - 2,
+        'Q' => sym_end + letters,
+        'R' ... 'W' => sym_end + (c as u8 - 'A' as u8) - 3,
+        'X' | 'Z' => sym_end + letters,
+        'Y' => sym_end + letters - 1,
+        '[' => 55,
+        '\\' => 56,
+        ']'=> 57,
+        '^' | '~' | '#' => 58,
+        '_' => 59,
+        '{' ... '}' => 60 + (c as u8 - '{' as u8),
+        _ => 0,
     }
 }
 
