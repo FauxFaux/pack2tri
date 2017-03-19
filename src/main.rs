@@ -210,7 +210,7 @@ impl<'a> Index<'a> {
             }
         };
 
-        let pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len).unwrap();
+        let pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len)?;
         let mut free_page: usize = pages.data.len() / page_size;
 
         loop {
@@ -226,7 +226,7 @@ impl<'a> Index<'a> {
         Ok(Index { idx, pages, free_page, page_size })
     }
 
-    fn page_for(&mut self, trigram: u32) -> Result<usize, ()> {
+    fn page_for(&mut self, trigram: u32) -> io::Result<usize> {
         assert!(trigram < TRI_MAX as u32);
 
         let page = self.idx.data[trigram as usize] as usize;
@@ -238,12 +238,12 @@ impl<'a> Index<'a> {
         self.free_page += 1;
         if self.free_page > self.pages.data.len() / self.page_size {
             let old_len = self.pages.data.len();
-            self.pages.remap(old_len + 100 * self.page_size).unwrap();
+            self.pages.remap(old_len + 100 * self.page_size)?;
         }
         Ok(self.free_page)
     }
 
-    fn append(&mut self, trigram: u32, document: u64) -> Result<(), ()> {
+    fn append(&mut self, trigram: u32, document: u64) -> io::Result<()> {
         let page = self.page_for(trigram)?;
         let header_loc = page * self.page_size;
         let header = self.pages.data[header_loc];
