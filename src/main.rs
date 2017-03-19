@@ -218,8 +218,7 @@ fn main() {
     };
 
     let mut pages: Mapped<u64> = Mapped::fixed_len("pages", pages_len).unwrap();
-    let mut avail_pages: usize = pages.data.len() / page_size;
-    let mut free_page: usize = avail_pages;
+    let mut free_page: usize = pages.data.len() / page_size;
 
     loop {
         if 0 != pages.data[(free_page - 1) * page_size] {
@@ -240,9 +239,9 @@ fn main() {
                 page = free_page;
                 idx.data[found] = page as u32;
                 free_page += 1;
-                if free_page > avail_pages {
-                    avail_pages += 100;
-                    pages.remap(avail_pages * page_size).unwrap();
+                if free_page > pages.data.len() / page_size {
+                    let old_len = pages.data.len();
+                    pages.remap(old_len + 100 * page_size).unwrap();
                 }
             }
 
