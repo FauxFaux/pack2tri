@@ -241,20 +241,41 @@ impl<'a> Index<'a> {
             return Ok(page);
         }
 
-        self.idx.data[trigram as usize] = self.free_page as u32;
+        let found_page = self.next_page()?;
+        self.idx.data[trigram as usize] = found_page as u32;
+        Ok(found_page)
+    }
+
+    fn next_page(&mut self) -> io::Result<usize> {
+        let ret = self.free_page;
         self.free_page += 1;
         if self.free_page >= self.pages.data.len() / self.page_size {
             let old_len = self.pages.data.len();
             self.pages.remap(old_len + 100 * self.page_size)?;
         }
-        Ok(self.free_page)
+
+        Ok(ret)
     }
 
     fn append(&mut self, trigram: u32, document: u64) -> io::Result<()> {
-        let page = self.page_for(trigram)?;
-        let header_loc = page * self.page_size;
-        let header = self.pages.data[header_loc];
-        assert!(header < self.page_size as u64);
+        let mut page = self.page_for(trigram)?;
+        let mut header_loc;
+        let mut header;
+        loop {
+            header_loc = page * self.page_size;
+            header = self.pages.data[header_loc];
+            if header == self.page_size as u64 {
+                page = self.next_page()?;
+                self.pages.data[header_loc] = page as u64 + self.page_size as u64;
+                header = 0;
+                header_loc = page * self.page_size;
+                break;
+            } else if header > self.page_size as u64 {
+                page = header as usize - self.page_size;
+            } else {
+                break;
+            }
+        }
         self.pages.data[header_loc] += 1;
         self.pages.data[page * self.page_size + 1 + header as usize] = document;
         Ok(())
