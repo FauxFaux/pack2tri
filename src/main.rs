@@ -277,7 +277,7 @@ impl<'a> Index<'a> {
             }
         }
         self.pages.data[header_loc] += 1;
-        self.pages.data[page * self.page_size + 1 + header as usize] = document;
+        self.pages.data[header_loc + 1 + header as usize] = document;
         Ok(())
     }
 
@@ -347,9 +347,15 @@ fn main() {
 
     fh.seek(io::SeekFrom::Start(16)).unwrap();
     loop {
-
         let document = fh.seek(io::SeekFrom::Current(0)).unwrap() + addendum;
-        let trigrams = eat_chunk(&mut fh).unwrap();
-        idx.append_trigrams(trigrams, document).unwrap();
+        match eat_chunk(&mut fh) {
+            Ok(trigrams) => idx.append_trigrams(trigrams, document).unwrap(),
+            Err(e) => {
+                if e.kind() == io::ErrorKind::UnexpectedEof {
+                    break;
+                }
+                println!("document {}: trigramming failed: {}", document, e)
+            },
+        };
     }
 }
