@@ -264,13 +264,13 @@ impl<'a> Index<'a> {
         loop {
             header_loc = page * self.page_size;
             header = self.pages.data[header_loc];
-            if header == self.page_size as u64 {
+            if header == (self.page_size - 1) as u64 {
                 page = self.next_page()?;
                 self.pages.data[header_loc] = page as u64 + self.page_size as u64;
                 header = 0;
                 header_loc = page * self.page_size;
                 break;
-            } else if header > self.page_size as u64 {
+            } else if header >= self.page_size as u64 {
                 page = header as usize - self.page_size;
             } else {
                 break;
