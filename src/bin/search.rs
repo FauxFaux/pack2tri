@@ -16,6 +16,7 @@ mod tri;
 enum Op {
     And(Vec<Op>),
     Or(Vec<Op>),
+    Any,
     Lit(Tri),
 }
 
@@ -35,6 +36,7 @@ impl fmt::Display for Op {
             Op::Lit(tri) => write!(f, "{}", tri::unpack(tri as usize)),
             Op::And(ref vec) => write!(f, "and({})", render_grams_in(vec)),
             Op::Or(ref vec) => write!(f, "or({})", render_grams_in(vec)),
+            Op::Any => write!(f, "FUUUU"),
         }
     }
 }
@@ -47,16 +49,24 @@ fn unpack(e: &Expr) -> Result<Op, String> {
             unpack(&e)
         },
         Expr::Repeat { ref e, ref r, greedy } => {
+            use regex_syntax::Repeater;
             println!("{} repeat of {} ..", greedy, r);
-            unpack(&e)?;
-            Err(format!("unimplemented: repeat parts: {}", e))
+            match *r {
+                Repeater::ZeroOrOne => Ok(Op::Any),
+                Repeater::ZeroOrMore => Ok(Op::Any),
+                Repeater::Range { min: 0, max: _ } => Ok(Op::Any),
+                _ => unpack(&e)
+            }
         },
         Expr::Concat(ref exprs) => {
             println!("{} different expressions ..", exprs.len());
-            for expr in exprs {
-                unpack(expr)?;
-            }
-            Err(format!("unimplemented: concat parts: {}", e))
+            let maybe: Result<Vec<Op>, String> = exprs.iter().map(unpack).collect();
+            Ok(Op::And(maybe?))
+        },
+        Expr::Alternate(ref exprs) => {
+            println!("{} alternate expressions ..", exprs.len());
+            let maybe: Result<Vec<Op>, String> = exprs.iter().map(unpack).collect();
+            Ok(Op::Or(maybe?))
         }
 
         Expr::Literal { ref chars, casei } => {
