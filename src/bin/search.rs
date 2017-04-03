@@ -52,8 +52,8 @@ fn unpack(e: &Expr) -> Result<Op, String> {
             use regex_syntax::Repeater;
             println!("{} repeat of {} ..", greedy, r);
             match *r {
-                Repeater::ZeroOrOne => Ok(Op::Any),
-                Repeater::ZeroOrMore => Ok(Op::Any),
+                Repeater::ZeroOrOne |
+                Repeater::ZeroOrMore |
                 Repeater::Range { min: 0, max: _ } => Ok(Op::Any),
                 _ => unpack(&e)
             }
