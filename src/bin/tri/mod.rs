@@ -1,6 +1,7 @@
 extern crate bit_set;
 
 use std::io;
+use std::collections::HashSet;
 
 use bit_set::BitSet;
 
@@ -86,6 +87,34 @@ pub fn unpack(wut: usize) -> String {
     return ret;
 }
 
+fn pack(prev: [u8; 3]) -> u32 {
+    64 * 64 * prev[0] as u32 + 64 * prev[1] as u32 + prev[2] as u32
+}
+
+pub fn trigrams_full(input: &str) -> Vec<u32> {
+    if input.len() < 3 {
+        return vec!();
+    }
+
+    let mut it = input.chars();
+    let mut prev: [u8; 3] = [0; 3];
+
+    for i in 0..3 {
+        prev[i] = simplify(it.next().unwrap());
+    }
+
+    let mut found: HashSet<u32> = HashSet::new();
+    found.insert(pack(prev));
+    for c in it {
+        prev[0] = prev[1];
+        prev[1] = prev[2];
+        prev[2] = simplify(c);
+        found.insert(pack(prev));
+    }
+
+    found.into_iter().collect()
+}
+
 pub fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<BitSet, String> {
     let mut line: u64 = 1;
     let mut prev: [u8; 3] = [0; 3];
@@ -104,8 +133,7 @@ pub fn trigrams_for<T: Iterator<Item=CharResult>>(input: T) -> Result<BitSet, St
         prev[0] = prev[1];
         prev[1] = prev[2];
         prev[2] = simplify(c);
-        let tri: usize = 64 * 64 * prev[0] as usize + 64 * prev[1] as usize + prev[2] as usize;
-        ret.insert(tri);
+        ret.insert(pack(prev) as usize);
     }
     return Ok(ret);
 }

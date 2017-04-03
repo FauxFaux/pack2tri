@@ -76,8 +76,8 @@ fn unpack(e: &Expr) -> Result<Op, String> {
             }
             println!("literal: {} ({})", lit, casei);
 
-            Ok(Op::And(tri::trigrams_for(chars.iter().map(|c| Ok::<char, io::CharsError>(*c)))?
-                         .iter().map(|gram| Op::Lit(gram as u32)).collect()))
+            Ok(Op::And(tri::trigrams_full(lit.as_str())
+                    .into_iter().map(|gram| Op::Lit(gram as u32)).collect()))
         }
 
         ref other => Err(format!("unimplemented: {}", other)),
